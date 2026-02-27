@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Калькулятор забора</title>
+
+<style>
+body {
+    font-family: Arial;
+    max-width: 800px;
+    margin: 40px auto;
+}
+label {
+    display:block;
+    margin-top:15px;
+}
+input, select {
+    padding:6px;
+    margin-top:5px;
+    width:100%;
+}
+button {
+    margin-top:20px;
+    padding:10px;
+    width:100%;
+    font-size:16px;
+    cursor:pointer;
+}
+.result {
+    margin-top:30px;
+    padding:20px;
+    background:#f4f4f4;
+    white-space:pre-line;
+}
+</style>
+</head>
+<body>
+
+<h2>Калькулятор стоимости забора</h2>
+
+<label>Периметр (м)
+<input type="number" id="perimeter" value="50">
+</label>
+
+<label>Материал
+<select id="material">
+<option value="1">3D сетка (эконом)</option>
+<option value="2">3D сетка (премиум)</option>
+<option value="3">Профлист</option>
+<option value="4">Штакетник стандарт</option>
+<option value="5">Штакетник 200</option>
+</select>
+</label>
+
+<label>Зазор (для штакетника)
+<select id="zazor">
+<option value="0">Без зазора</option>
+<option value="1">2 см</option>
+<option value="2">2 см (вариант 2)</option>
+<option value="3">4 см</option>
+<option value="4">4 см (вариант 2)</option>
+<option value="5">6 см</option>
+<option value="6">8 см</option>
+</select>
+</label>
+
+<label>Калитка
+<select id="kalitka">
+<option value="0">Без калитки</option>
+<option value="1">Эконом</option>
+<option value="2">С замком</option>
+</select>
+</label>
+
+<label>Ворота
+<select id="vorota">
+<option value="0">Без ворот</option>
+<option value="1">Вариант 1</option>
+<option value="2">Вариант 2</option>
+<option value="3">Вариант 3</option>
+<option value="14">Вариант 14</option>
+<option value="24">Вариант 24</option>
+<option value="34">Вариант 34</option>
+</select>
+</label>
+
+<label>
+<input type="checkbox" id="demontazh"> Нужен демонтаж
+</label>
+
+<label>Дистанция доставки (км)
+<input type="number" id="distance" value="0">
+</label>
+
+<button onclick="runCalc()">Рассчитать</button>
+<button onclick="downloadPDF()">Скачать PDF</button>
+
+<div class="result" id="result"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+// --- Цены ---
+const sheben_per_m = 20;
+const montage_per_m = 750;
+const demontazh_per_m = 100;
+const dostavka_km = 2000;
+
+const setka_3d_eco = 2400;
+const setka_3d_premium = 2900;
+const proflist = 1350;
+
+const shtaket_175 = 175;
+const shtaket_185 = 185;
+const shtaket_190 = 190;
+const shtaket_200 = 200;
+
+const krepezh_setka = 25;
+const krepezh_proflist = 4;
+const krepezh_shtaket = 4;
+
+const kalitka_eco = 11000;
+const kalitka_lock = 16000;
+
+const vorotaMap = {
+    1: 21000,
+    2: 80000,
+    3: 90000,
+    14: 84000,
+    24: 143000,
+    34: 153000
+};
+
+let lastEstimateText = "";
+
+function calculate(perimeter, material, zazor, kalitka, vorota, demontazh, distance) {
+
+    let zabor_name = "";
+    let zazor_name = "Без зазора";
+    let kalitka_name = "Без калитки";
+    let vorota_name = "Без ворот";
+
+    let zena_kalitka = 0;
+    let vorota_zena = 0;
+    let zena = 0;
+    let kolvo = 0;
+    let obsh_krepezh = 0;
+
+    if (kalitka === 1) {
+        kalitka_name = "Калитка эконом";
+        zena_kalitka = kalitka_eco;
+    } else if (kalitka === 2) {
+        kalitka_name = "Калитка с замком";
+        zena_kalitka = kalitka_lock;
+    }
+
+    if (vorotaMap[vorota]) {
+        vorota_name = "Ворота вариант " + vorota;
+        vorota_zena = vorotaMap[vorota];
+    }
+
+    const sheben_zena = perimeter * sheben_per_m;
+    const montage_zena = perimeter * montage_per_m;
+    const dem_zena = demontazh ? perimeter * demontazh_per_m : 0;
+    const dostavka_zena = distance * dostavka_km;
+
+    if ([1,2].includes(material)) {
+        zabor_name = "3D сетка";
+        kolvo = perimeter / 2.5;
+        zena = kolvo * (material === 1 ? setka_3d_eco : setka_3d_premium);
+        obsh_krepezh = (6 * kolvo) * krepezh_setka;
+    }
+    else if (material === 3) {
+        zabor_name = "Профлист";
+        kolvo = perimeter / 1.1;
+        zena = kolvo * proflist;
+        obsh_krepezh = (8 * kolvo) * krepezh_proflist;
+    }
+    else {
+        zabor_name = "Штакетник";
+
+        const zazor_map = {
+            1:[7.6,"2 см"],2:[7.6,"2 см"],
+            3:[6.6,"4 см"],4:[6.6,"4 см"],
+            5:[11,"6 см"],6:[10,"8 см"]
+        };
+
+        if (zazor_map[zazor]) {
+            kolvo = perimeter * zazor_map[zazor][0];
+            zazor_name = zazor_map[zazor][1];
+        }
+
+        if ([1,3].includes(zazor) && material === 4) {
+            zena = kolvo * shtaket_175;
+        } else if ([2,4,5,6].includes(zazor) && material === 4) {
+            zena = kolvo * shtaket_185;
+        } else if ([2,4,5,6].includes(zazor) && material === 5) {
+            zena = kolvo * shtaket_200;
+        } else {
+            zena = kolvo * shtaket_190;
+        }
+
+        obsh_krepezh = (kolvo * 6) * krepezh_shtaket;
+    }
+
+    const total = zena + zena_kalitka + vorota_zena + sheben_zena + dem_zena + montage_zena + obsh_krepezh;
+
+    return `
+СМЕТА НА ЗАБОР
+
+Периметр: ${perimeter} м
+Материал: ${zabor_name}
+Количество: ${Math.round(kolvo)} шт.
+Стоимость материала: ${Math.round(zena)} руб.
+
+Калитка: ${kalitka_name}
+Ворота: ${vorota_name}
+
+Щебень: ${Math.round(sheben_zena)} руб.
+Монтаж: ${Math.round(montage_zena)} руб.
+Демонтаж: ${Math.round(dem_zena)} руб.
+Доставка: ${Math.round(dostavka_zena)} руб.
+
+ИТОГО: ${Math.round(total)} руб.
+`;
+}
+
+function runCalc() {
+    const perimeter = Number(document.getElementById("perimeter").value);
+    const material = Number(document.getElementById("material").value);
+    const zazor = Number(document.getElementById("zazor").value);
+    const kalitka = Number(document.getElementById("kalitka").value);
+    const vorota = Number(document.getElementById("vorota").value);
+    const demontazh = document.getElementById("demontazh").checked;
+    const distance = Number(document.getElementById("distance").value);
+
+    lastEstimateText = calculate(perimeter, material, zazor, kalitka, vorota, demontazh, distance);
+    document.getElementById("result").innerText = lastEstimateText;
+}
+
+function downloadPDF() {
+
+    if (!lastEstimateText) {
+        alert("Сначала выполните расчет");
+        return;
+    }
+
+    const docDefinition = {
+        content: [
+            { text: 'СМЕТА НА ЗАБОР', style: 'header' },
+            { text: lastEstimateText, margin: [0, 10, 0, 0] }
+        ],
+        styles: {
+            header: {
+                fontSize: 16,
+                bold: true
+            }
+        },
+        defaultStyle: {
+            fontSize: 11
+        }
+    };
+
+    pdfMake.createPdf(docDefinition).download("smeta_zabor.pdf");
+}
+</script>
+
+</body>
+</html>
